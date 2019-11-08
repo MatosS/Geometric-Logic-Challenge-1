@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Geometric Logic Challenge</title>
+
+    <style>
+        body {
+            padding: 0;
+        }
+
+        #canvas {
+            /* border: 1px solid #000; */
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="1220" height="820"></canvas>
+
+    <script>
+        const PADDING = 5;
+        const WIDTH = 1220;
+        const HEIGHT = 820;
+        const SCALE = 25;
+        const X_SIZE = Math.floor((WIDTH - PADDING*2) / SCALE) + 1;
+        const Y_SIZE = Math.floor((HEIGHT - PADDING*2) / SCALE) + 1;
+        const SPEED = 5;
+        const RECTANGLE_SPEED_MULTIPLE = 10;
+
+        const BACKGROUND_COLOR = '#FFF';
+        const DOT_RADIUS = 4;
+        const DOT_DEFAULT_COLOR = '#CCC';
+        const DOT_MARKED_COLOR = '#000';
+        const DOT_MAIN_CHECKING_COLOR = '#0000FF';
+        const DOT_CHECKING_COLOR = '#FF0000';
+        const DOT_SUCCESS_COLOR = '#00FF00';
+        const LINE_COLOR = '#00FF00';
+        const RECTANGLE_COLOR = '#00FF00';
+        const TEXT_COLOR = '#000';
+        const LINE_WIDTH = 10;
+
+        const TO_DRAW = [];
+
+        const init = (dots) => {
+            startRenderScreen(dots);
+
+            const lines = findUniqueVerticalLines(dots);
+
+            findRectangles(lines);
+        }
+
+        // RULE FUNCTIONS
+
+        const findUniqueVerticalLines = dots => {
+            return dots.reduce((lines, dot) => {
+                return lines.concat(
+                    dots.map(dot_below => {
+                        if (dot != dot_below) {
+                            if (dot.x === dot_below.x && dot.y < dot_below.y) {
+                                return [ dot, dot_below ];
+                            }
+                        }
+                    }).filter(x => x)
+                );
+            }, []);
+        }
+
+        const findRectangles = lines => {
+            const rectangles = lines.reduce((rectangles, line) => {
+                const pairLines = getPairLines(lines, line);
+
+                return rectangles.concat(
+                    pairLines.reduce((rectangles, pairLine) => {
+                        const newRectangle = [ ...line, ...pairLine ];
+
+                        if (!recAlreadyExists(rectangles, newRectangle)) {
+                            rectangles.push(newRectangle);
+                        }
+
+                        return rectangles;
+                    }, [])
+                );
+            }, []);
+
+            rectangles.forEach((rectangle, counter) =>
+                addDrawToRender(ctx => drawRectangle(ctx, rectangle, RECTANGLE_COLOR, counter + 1), RECTANGLE_SPEED_MULTIPLE)
+            );
+
+            console.log(rectangles);
+        }
+
+        // DRAW FUNCTIONS
+
+        const startRenderScreen = dots => {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext("2d");
+
+            resetScreen(ctx, dots);
+
+            renderScreen(ctx, dots);
+        }
+
+        const renderScreen = async (ctx, dots) => {
+            await TO_DRAW.reduce(async (previousDraw, draw) => {
+                await previousDraw;
+
+                if (draw) {
+                    draw.drawFunction(ctx);
+
+                    await delay(draw.speedMultiply);
+
+                    if (draw.drawOnce) {
+                        removeDrawFromRender(draw.key);
+                    }
+                }
+
+                resetScreen(ctx, dots);
+            }, Promise.resolve());
+
+            requestAnimationFrame(async () => await renderScreen(ctx, dots));
+        }
+
+        const addDrawToRender = (drawFunction, speedMultiply = 1, drawOnce = true) => {
+            const key = '_' + Math.random().toString(36).substr(2, 9);
+
+            TO_DRAW.push({
+                key,
+                drawFunction,
+                speedMultiply,
+                drawOnce,
+            });
+
+            return key;
+        }
+
+        const removeDrawFromRender = key => {
+            const drawIdx = TO_DRAW.findIndex(d => d.key === key);
+
+            if (drawIdx === -1) {
+                return;
+            }
+
+            if (TO_DRAW[drawIdx].drawOnce) {
+                TO_DRAW.splice(drawIdx, 1);
+            } else {
+                TO_DRAW[drawIdx].drawOnce = true;
+            }
+        };
+
+        const resetScreen = (ctx, dots) => {
+            clearScreen(ctx);
+            drawDefaultDots(ctx);
+            markCoordinates(ctx, dots);
+        }
+
+        const drawDefaultDots = (ctx) => {
+            for (let x = 0; x < X_SIZE; x++) {
+                for (let y = 0; y < Y_SIZE; y++) {
+                    drawDot(ctx, { x, y }, DOT_DEFAULT_COLOR);
+                }
+            }
+        }
+
+        const markCoordinates = (ctx, dots) => {
+            dots.forEach(dot => {
+                drawDot(ctx, dot, DOT_MARKED_COLOR);
+            })
+        }
+
+        const getX = dot => (dot.x * SCALE) + PADDING;
+        const getY = dot => (dot.y * SCALE) + PADDING;
+
+        const clearScreen = ctx => {
+            ctx.fillStyle = BACKGROUND_COLOR;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+
+        const drawDot = (ctx, dot, color) => {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(getX(dot), getY(dot), DOT_RADIUS, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        const drawLine = (ctx, dot, dot2, color) => {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = LINE_WIDTH;
+            ctx.beginPath();
+
+            if (getX(dot) !== getX(dot2)) {
+                ctx.moveTo(getX(dot) + PADDING, getY(dot));
+                ctx.lineTo(getX(dot2) - PADDING, getY(dot2));
+            } else {
+                ctx.moveTo(getX(dot), getY(dot) + PADDING);
+                ctx.lineTo(getX(dot2), getY(dot2) - PADDING);
+            }
+
+            ctx.stroke();
+        }
+
+        const drawRectangle = (ctx, rectangle, color, numbered) => {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+
+            rectangle.sort((dotA, dotB) => (dotA.x + dotA.y) - (dotB.x + dotB.y));
+
+            const dotToFindWidth = rectangle.find(dot =>
+                dot.y === rectangle[0].y && dot.x !== rectangle[0].x);
+            const dotToFindHeight = rectangle.find(dot =>
+                dot.x === rectangle[0].x && dot.y !== rectangle[0].y);
+
+            const x = getX(rectangle[0]) + PADDING;
+            const y = getY(rectangle[0]) + PADDING;
+            const width = Math.abs(getX(dotToFindWidth) - getX(rectangle[0]) - PADDING * 2);
+            const height = Math.abs(getY(dotToFindHeight) - getY(rectangle[0]) - PADDING * 2);
+
+            ctx.fillRect(x, y, width, height);
+
+            if (numbered) {
+                drawText(ctx, x + (width/2), y + (height/2), numbered, TEXT_COLOR);
+            }
+        }
+
+        const drawText = (ctx, x, y, text, color) => {
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.font = "48px Arial";
+
+            const { width, actualBoundingBoxAscent } = ctx.measureText(text);
+
+            ctx.fillText(text, x - width/2, y + actualBoundingBoxAscent/2);
+        }
+
+        // UTILS
+
+        const delay = (multiple = 1) => {
+            return new Promise(resolve => setTimeout(resolve, SPEED * multiple));
+        }
+
+        const getPairLines = (lines, checkedLine) =>
+            lines.filter(line =>
+                ((line[0].y === checkedLine[0].y &&
+                line[1].y === checkedLine[1].y) ||
+                (line[0].y === checkedLine[1].y &&
+                line[1].y === checkedLine[0].y)) &&
+                !lineIsEqual(line, checkedLine)
+            )
+
+        const lineIsEqual = (line1, line2) =>
+            (!!line2.find(dot => dot.x === line1[0].x && dot.y === line1[0].y)) &&
+            (!!line2.find(dot => dot.x === line1[1].x && dot.y === line1[1].y))
+
+        const recAlreadyExists = (rectangles, newRectangle) =>
+            !!rectangles.find(rectangle => (
+                rectangle.indexOf(newRectangle[0]) > -1 &&
+                rectangle.indexOf(newRectangle[1]) > -1 &&
+                rectangle.indexOf(newRectangle[2]) > -1 &&
+                rectangle.indexOf(newRectangle[3]) > -1
+            ));
+
+        let randomDots = [];
+        const dotsCount = Math.round(X_SIZE * Y_SIZE * 0.2);
+
+        for (let i = 0; i < dotsCount; i++) {
+            randomDots.push({
+                x: Math.floor(Math.random() * X_SIZE),
+                y: Math.floor(Math.random() * Y_SIZE),
+            });
+        }
+
+        randomDots = randomDots.filter((dot, idx) => {
+            return randomDots.findIndex(d =>
+                d.x === dot.x && d.y === dot.y
+            ) === idx;
+        });
+
+        randomDots.sort((dotA, dotB) => {
+            if (dotA.y != dotB.y)
+              return dotA.y - dotB.y;
+
+            return dotA.x - dotB.x;
+        });
+
+        window.onload = () => init(randomDots);
+    </script>
+</body>
+</html>
